@@ -165,6 +165,56 @@ RSpec.describe RubyLLM::Agent do
     expect(fake_chat.events).to eq(%i[new_message end_message tool_call tool_result])
   end
 
+  it 'supports a model block with access to inputs' do
+    agent_class = Class.new(RubyLLM::Agent) do
+      inputs :quality
+      model { quality == :high ? 'gpt-4.1-mini' : 'gpt-4.1-nano' }
+      instructions 'You are helpful.'
+    end
+
+    high = agent_class.chat(quality: :high)
+    low = agent_class.chat(quality: :low)
+
+    expect(high.model.id).to eq('gpt-4.1-mini')
+    expect(low.model.id).to eq('gpt-4.1-nano')
+  end
+
+  it 'raises when both model ID and block are given' do
+    expect do
+      Class.new(RubyLLM::Agent) do
+        model('gpt-4.1-nano') { 'gpt-4.1-mini' }
+      end
+    end.to raise_error(ArgumentError, /provide either a model ID or a block/)
+  end
+
+  it 'supports a model block via Agent.new' do
+    agent_class = Class.new(RubyLLM::Agent) do
+      model { 'gpt-4.1-nano' }
+    end
+
+    agent = agent_class.new
+    expect(agent.model.id).to eq('gpt-4.1-nano')
+  end
+
+  it 'preserves additional options when model is a block' do
+    agent_class = Class.new(RubyLLM::Agent) do
+      model(provider: :openai) { 'gpt-4.1-nano' }
+    end
+
+    chat = agent_class.chat
+    expect(chat.model.id).to eq('gpt-4.1-nano')
+  end
+
+  it 'inherits model block to subclasses' do
+    parent = Class.new(RubyLLM::Agent) do
+      model { 'gpt-4.1-nano' }
+    end
+
+    child = Class.new(parent)
+    chat = child.chat
+    expect(chat.model.id).to eq('gpt-4.1-nano')
+  end
+
   it 'supports Enumerable by delegating each to chat' do
     fake_chat = Class.new do
       def each(&block)

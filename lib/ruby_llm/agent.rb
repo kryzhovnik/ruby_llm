@@ -27,8 +27,10 @@ module RubyLLM
         subclass.instance_variable_set(:@input_names, (@input_names || []).dup)
       end
 
-      def model(model_id = nil, **options)
-        options[:model] = model_id unless model_id.nil?
+      def model(model_id = nil, **options, &block)
+        raise ArgumentError, 'provide either a model ID or a block, not both' if model_id && block
+
+        options[:model] = block || model_id
         @chat_kwargs = options
       end
 
@@ -96,8 +98,11 @@ module RubyLLM
         @input_names = names.flatten.map(&:to_sym)
       end
 
+      # Strip Proc models from kwargs passed to RubyLLM.chat;
+      # the Proc is evaluated and applied separately in apply_model.
       def chat_kwargs
-        @chat_kwargs || {}
+        kwargs = @chat_kwargs || {}
+        kwargs[:model].is_a?(Proc) ? kwargs.except(:model) : kwargs
       end
 
       def chat(**kwargs)
@@ -163,6 +168,7 @@ module RubyLLM
         runtime = runtime_context(chat: chat_object, inputs: input_values)
         llm_chat = llm_chat_for(chat_object)
 
+        apply_model(llm_chat, runtime)
         apply_context(llm_chat)
         apply_instructions(chat_object, runtime, inputs: input_values, persist: persist_instructions)
         apply_tools(llm_chat, runtime)
@@ -171,6 +177,11 @@ module RubyLLM
         apply_params(llm_chat, runtime)
         apply_headers(llm_chat, runtime)
         apply_schema(llm_chat, runtime)
+      end
+
+      def apply_model(llm_chat, runtime)
+        model_value = (@chat_kwargs || {})[:model]
+        llm_chat.with_model(evaluate(model_value, runtime)) if model_value.is_a?(Proc)
       end
 
       def apply_context(llm_chat)
